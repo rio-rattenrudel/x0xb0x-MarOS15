@@ -1,12 +1,9 @@
-# x0xb0x-MarOS15
-x0xb0x - MarOS15 - MOD for x0xb0x with x0xLarge CPU (Atmega2561)
-
 x0xb0x - MarOS15 - MOD
 ======================
 ## Preamble
 
 This branch contains some necessary changes to the x0xb0x MarOS15 firmware, which has already been adapted by Nordcode.
-The customizations are largely compatible with the MarOS15 1.81 version (Nordcode), but include the following changes. The master branch version on which the modifications are based lies in the branch 'original'.
+The customizations are largely compatible with the MarOS15 1.81 version (Nordcode) - especially for x0xLarge CPU (Atmega2561), but include the following changes. The master branch version on which the modifications are based lies in the branch 'original'.
 
 ## Modifications
 
