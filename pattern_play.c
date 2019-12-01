@@ -126,10 +126,12 @@ void pattern_note_off(uint8_t note)
 {
 	if(numHeldNotes)
 	{
+
 		//pattern keys and transpose keys count for running state
 	//	if(isTriggerNote(note))
-		if(note > 35 && note < 97 && note != 37 && note != 39 && note != 42)
-		{
+		if( (IS_SET2( SETTINGS2_FULL_TRANSPOSE ) && note >= 0x1F && note < 97) || 
+			(note > 35 && note < 97 && note != 37 && note != 39 && note != 42)) {
+			
 			numHeldNotes--;
 			if(!numHeldNotes)
 				playingChange = 2;
@@ -142,14 +144,23 @@ void pattern_note_off(uint8_t note)
 void pattern_note_on(uint8_t note, uint8_t velocity)
 {	// ATN: velocity 0 calls note off, not us! 
 
+	uint8_t transpose_min = LOWESTNOTE2_TRANSPOSE; // original mode
+	uint8_t transpose_max = HIGHESTNOTE_TRANSPOSE;
+	uint8_t triggerMode = 1;
+
+	if (IS_SET2( SETTINGS2_FULL_TRANSPOSE )) {
+		transpose_min = LOWESTNOTE_TRANSPOSE;
+		triggerMode = 0;
+	}
+
 	// note 0..35 scale correction mode
-	if(note < 36)	//TODO turn off if not in midiS
+	if(note < 36 && triggerMode)	//TODO turn off if not in midiS
 	{
 		scaleCorrType = note / 12; // 0,1,2  == off, major, minor
 		scaleCorrRoot = note % 12;
 	}
 	// latch key, stop key, only look for noteOns
-	else if(note == 37)			//stop
+	else if(note == 37 && triggerMode)			//stop
 	{
 		if(numHeldNotes)
 		{
@@ -157,7 +168,7 @@ void pattern_note_on(uint8_t note, uint8_t velocity)
 			playingChange = 2;
 		}
 	}
-	else if(note == 39)			// latch
+	else if(note == 39 && triggerMode)			// latch
 	{
 		if(!latch)
 		{
@@ -176,8 +187,9 @@ void pattern_note_on(uint8_t note, uint8_t velocity)
 			}
 		}
 	}
+
 	// note 36..48 - 8 patterns to select on white keys
-	else if(note > 35 && note < 49)
+	else if(note > 35 && note < 49 && triggerMode)
 	{
 		if(!numHeldNotes)
 		{
@@ -203,8 +215,9 @@ void pattern_note_on(uint8_t note, uint8_t velocity)
 		// fix for EOP
 		if(pattern_play_index > findEOP())
 			pattern_play_index = 0;
-	}	// note 49..96
-	else if(note > 48 && note < 97)
+
+	}	// note - transpose_min (49 or 0x1F fullmode)..96
+	else if(note >= transpose_min && note <= transpose_max)
 	{
 		curr_pitch_shift = next_pitch_shift = note - 60;
 		if(!numHeldNotes)
@@ -245,27 +258,28 @@ void pattern_controller(uint8_t data1, uint8_t data2)
 void pattern_progChange(uint8_t c)
 {
 	uint8_t midiChain, midiBank; 
-	
-	midiBank= c / 8;
-	if(midiBank!=bank)
-	{
-		next_bank = midiBank;
-		if(!playing)
-			curr_bank = next_bank;
-	}
 
-	midiChain=c%8; 
+	midiBank= c / 8;
+
+	next_bank = midiBank;
+	if(!playing || IS_SET2( SETTINGS2_INSTANT_PROGCHG ))
+		curr_bank = next_bank;
+
+	midiChain=c % 8; 
 	
 	clear_notekey_leds();
 	buff_chain[0] = next_chain[0] = midiChain ;
 	buff_chain[1] = next_chain[1] = 0xFF;
 
-	if(!playing)
+	if(!playing || IS_SET2( SETTINGS2_INSTANT_PROGCHG ))
 	{
 		cpy_curr_chain();
 		set_bank_leds(next_bank);
 //		curr_pitch_shift = next_pitch_shift;
 	}
+
+	if (IS_SET2( SETTINGS2_INSTANT_PROGCHG ) )
+		load_next_pattern();
 }
 
 void play_start_fn(void)
@@ -281,24 +295,24 @@ void play_start_fn(void)
 }
 void play_stop_fn(void)
 {
-	; 
+	if (playingChange == 2)
+		load_next_pattern(); // load next pattern in chain routine
 }
 
-void start_stop(void)
+void start_stop(uint8_t isEdit)
 {
 	uint8_t cmd; 
 	
 	cmd=midi_realtime_cmd;
 	midi_realtime_cmd=0;
 	
-	if(!IS_SET1(SETTINGS1_STARTMODE) && sync ==MIDI_SYNC)
+	if(!IS_SET1(SETTINGS1_STARTMODE) && sync == MIDI_SYNC && !(isEdit && cmd == MIDI_START))
 	{
 		if( cmd != MIDI_STOP )
 			cmd = 0;
-
 		if(playing)	
 		{
-			if(playingChange == 2 )
+			if(playingChange == 2 && !isEdit)
 				cmd = MIDI_STOP;
 		}
 		else
@@ -313,30 +327,31 @@ void start_stop(void)
 #ifdef DIN_SYNC_IN
 	if(sync == DIN_SYNC)
 	{
-		if(playing && !DINSYNC_IS_START )
+		if(playing && !DINSYNC_IS_START && !isEdit)
 			cmd = MIDI_STOP;
 		if(!playing && DINSYNC_IS_START )
 			cmd = MIDI_START;
 	}
 #endif
 	
+	// just only start & stop by R/S!! commented the internal handling stuff out
 	if(just_pressed(KEY_RS))
 	{
-		if(		sync==INTERNAL_SYNC
+/*		if(		sync==INTERNAL_SYNC
 			||	tempoMeasure==0xff 
 			||	(		midi_run==0 
 #ifdef DIN_SYNC_IN
 					&&	0==(DINSYNC_PINS & (1<< DINSYNC_START))
 #endif 
 				) 
-		)
+		)*/
 		{
 			if(playing)
 				cmd = MIDI_STOP;
 			else
 				cmd = MIDI_START;
 		}
-		else if(	sync==MIDI_SYNC 
+/*		else */if(	sync==MIDI_SYNC 
 #ifdef DIN_SYNC_IN
 				|| sync == DIN_SYNC
 #endif
@@ -391,7 +406,7 @@ void start_stop(void)
 			if( IS_SET2(SETTINGS2_KEEP_STEPMODE) && (edit_mode&EDIT_STEP_STOPPED))
 				set_current_index_led(); 
 			else
-				set_bank_leds(bank);
+				set_bank_leds(next_bank);
 		}
 	
 	}	//Stop!
@@ -548,7 +563,7 @@ void do_patterntrack_play(void)
 			uint8_t enteredMode = 0;
 
 			do_midi();		// evaluate midi (notes, CC, PB all non real-time ) 
-			start_stop();	// check for start stop command (R/S button, midi real time) 
+			start_stop(0);	// check for start stop command (R/S button, midi real time) 
 
 			if(!tempoKnobMode)
 				if(just_pressed(KEY_TEMPO) && !is_pressed(KEY_DONE))

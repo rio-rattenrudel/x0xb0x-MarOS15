@@ -93,7 +93,7 @@ uint8_t get_next_patt_idx(void);
 uint8_t isTriggerNote(uint8_t note);
 void	cpy_curr_chain(void);	// copies next_chain to current chains and helps to save some bytes on the "frequently" used function 
 void	set_syncmode(void);
-void	start_stop(void); 
+void	start_stop(uint8_t isEdit); 
 
 void set_current_index_led(void);
 

@@ -1,0 +1,282 @@
+Upload (simple via usb):
+------------------------
+
+avrdude -p atmega2561 -c stk500v2 -P COM4 -b 57600 -e -U flash:w:x0xb0x.hex:i
+avrdude -p atmega2561 -c stk500v2 -P \\.\COM4 -b 57600 -e -U flash:w:x0xb0x.hex:i
+
+
+Install:
+--------
+
+A. install WinAVR-20100110-install.exe from tools/winavr folder
+B. adjust system path for winavr (winavr must be behind msys and perl)
+1. Copy & override avr-gcc 4.7 snapshot in WinAVR folder (needed for __flash)
+2. Add + adapt makefile with randomizer (from sokkos)
+3. Set compiler flag __AVR_ATmega2561__ 
+
+
+Hacks:
+------
+
+main.h
+
+4. get ride of most warnings.. look at compiler messages
+5. remove & uncomment in main.h CRC wired stuff... (takeover from original 1.5.0)
+
+6. Added antto's c0nb0x MSG handler
+
+compcontrol.h
+compcontrol.c
+
+add XMSG_... functions from antto's side, which are needed.
+
+usage:
+
+    textout("Tempo changed to ");
+    textout_ui8(value);
+    textout_ui16(tempo);
+    textout(" bpm.\n");
+
+
+7. display played notes by LEDs in midiplay mode
+
+midi.c
+
+      case MIDI_NOTE_ON:
+..
+
+    // turn on that LED
+    set_notekey_led(note % 12);
+
+
+      case MIDI_NOTE_OFF:
+..
+
+    // turn off that LED
+    clear_notekey_led(note % 12);
+
+.. // and all blink blink stuff
+
+
+8. moved keyboard part inside midiplay mode
+
+midi.c
+
+
+9. added modified MVA for prio holding notes in midiplay mode
+
+midi.c
+
+
+10. release "holded keys" by transposed keys in midiplay mode
+
+midi.c
+
+
+11. remove all the wired CRC stuff for 2561...
+
+main.c
+main.h 
+
+    removed FLASHCRCCHECK & FASTCRC
+    takeover ioinit from marOS 1.5-0
+
+12. fixed prog.change for advanced mode 
+
+main.c
+
+    added new funcion:  void load_next_pattern(void), which used code from do_tempo as well.
+                        That code is now replaced by this function call.
+
+main.h
+
+    void    load_next_pattern(void);
+
+pattern_play.c
+
+    // Fixed: pattern_progChange: removed midiBank!=bank condition:
+
+    void pattern_progChange(uint8_t c)
+    {
+        uint8_t midiChain, midiBank; 
+        
+        midiBank= c / 8;
+
+        next_bank = midiBank;
+        if(!playing)
+            curr_bank = next_bank;
+
+        midiChain=c % 8; 
+        
+        clear_notekey_leds();
+        buff_chain[0] = next_chain[0] = midiChain ;
+        buff_chain[1] = next_chain[1] = 0xFF;
+
+        if(!playing)
+        {
+            cpy_curr_chain();
+            set_bank_leds(next_bank);
+    //      curr_pitch_shift = next_pitch_shift;
+        }
+    }
+
+..
+..
+
+    // Added: load next call, used by detected stopped playing note: playingChange == 2
+
+    void play_stop_fn(void)
+    {
+        if (playingChange == 2)
+            load_next_pattern(); // load next pattern in chain routine
+    }
+
+..
+..
+
+    // Fixed: prog.changed bank led visual (used next_bank instead bank - which depends to bank knob):
+
+    void start_stop(void) {
+
+..
+..
+
+        if (!tempoKnobMode )
+        {   
+            if( IS_SET2(SETTINGS2_KEEP_STEPMODE) && (edit_mode&EDIT_STEP_STOPPED))
+                set_current_index_led(); 
+            else
+                set_bank_leds(next_bank);
+        }
+..
+..
+    }
+
+13. Fix note range for midiplay, remove octave loop
+
+midi.c
+
+    0x1F...0x3F+0x19
+
+    // removed octave loop,
+    // midiplay has a bigger
+    // range then pattern_play
+
+    if (note < 0x1F)        return 0;
+    if (note > 0x3F+0x19)   return 0;
+
+
+14. Fix note range for pattern_play
+
+pattern_play.c
+
+    0x1F..96 -->    pattern_note_on: transposing of pattern
+
+main.c
+
+    LOWESTNOTE C1 (0x0B) ...HIGHESTNOTE D5_SHARP (0x3E)
+    (playable notes for pattern in pattern_play or pattern_edit)
+
+    // place final note in valid range
+    //while(ps > HIGHESTNOTE)           //highest
+    //  ps -= OCTAVE;
+    //while(note && ps < LOWESTNOTE)    //lowest C!
+    //  ps += OCTAVE;
+
+    // removed octave loop,
+    // pattern_play has a smaller
+    // range then midiplay
+
+    if (ps < LOWESTNOTE && note)    return;
+    if (ps > HIGHESTNOTE)           return;
+
+
+
+15. ADD 1OCT- for midiplay, instant Prog.Change, ignore pattern selection as settings in USERC #F
+
+#define SETTINGS2_FULL_TRANSPOSE   3    // Key #4  LED ON = ignores pattern selection by notes aso. instead use full range transpose
+
+#define SETTINGS2_OCT_DOWN         6    // Key #7  LED ON = use -1OCT for midiplay incoming notes
+#define SETTINGS2_INSTANT_PROGCHG  7    // Key #8  LED ON = don't wait for end o. release of playing pattern
+
+
+16. pattern_edit -> pattern_play: fixed Advanced Mode
+
+pattern_edit:
+
+    // handle all start / stop inputs
+    do_midi(); // do_midi exec is necessary!!! fixed Advanced Mode pattern start/stop
+    start_stop(1);
+
+pattern_play:
+
+    void start_stop(uint8_t isEdit) 
+
+    - isEdit parameter ignores stop by incoming midi/dinsync
+
+
+17. commented the internal handling stuff out
+
+pattern_play: 
+
+void start_stop(uint8_t isEdit)
+
+..
+
+    // just only start & stop by R/S!! commented the internal handling stuff out
+    if(just_pressed(KEY_RS))
+    {
+/*      if(     sync==INTERNAL_SYNC
+            ||  tempoMeasure==0xff 
+            ||  (       midi_run==0 
+#ifdef DIN_SYNC_IN
+                    &&  0==(DINSYNC_PINS & (1<< DINSYNC_START))
+#endif 
+                ) 
+        )*/
+
+
+18. Fixed Edit Start/Stop:
+
+main.c
+
+            case EDIT_PATTERN_FUNC:
+                sync = MIDI_SYNC;
+                do_pattern_edit();
+                break;
+..
+
+
+pattern_play.c                
+
+
+void start_stop(uint8_t isEdit)
+{
+    uint8_t cmd; 
+    
+    cmd=midi_realtime_cmd;
+    midi_realtime_cmd=0;
+    
+    if(!IS_SET1(SETTINGS1_STARTMODE) && sync == MIDI_SYNC && !(isEdit && cmd == MIDI_START))
+..
+
+
+
+debugging stuff:
+
+    textout_ui8(playingChange);textout(" ");
+    textout_ui8(playing);textout(" ");
+    textout_ui8(edit_mode);textout(" ");
+    textout_ui8(sync);textout(" ");
+    textout_ui8(sync_startstop);textout(" ");
+    textout_ui8(midi_run);textout(" ");
+    textout_ui8(midi_stop);textout(" ");
+    textout("\n");
+
+
+infor or bugs around the original marOS handling
+
+1. EDIT -> MIDI_SYNC stops playback if R/S Button is pressed (seems ok, because SYNC waits for midi note of advmode)
+2. MIDI_SYNC - R/S can't pressed (fixed, and it's waiting for midi note advmode)
+3. MIDI_SYNC -> EDIT -> LOOP4x -> MIDI_SYNC doesn't stop by noteoff (fixed by do_midi & start_stop(1) in edit_pattern)
+4. MIDI_SYNC -> EDIT outside note doesn't trigger current pattern (not fixed, but minor)

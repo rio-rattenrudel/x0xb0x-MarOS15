@@ -175,11 +175,11 @@ static const uint16_t scaleModifications[2][2][2] =  // main type / dim2nd / har
 
 
 //void	dispatch_note_off(int8_t pitch_shift);
-void	dispatch_note_off();
+void	dispatch_note_off(void);
 void	dispatch_note_on(int8_t pitch_shift);
 void	load_next_chain(uint8_t reset);
 void	setup_scales(void);
-void dumb_functions(uint8_t func);
+void	dumb_functions(uint8_t func);
 
 
 /*
@@ -234,32 +234,6 @@ void ioinit()
 #else
 	SPSR = (1<<SPI2X);
 	SPCR = (1 << SPE) | (1 << MSTR);				// master spi, clk=fosc/2 = 8mhz
-#endif
-
-#ifdef FLASHCRCCHECK
-#if ! DEBUG
-	if( checkFlash() !=0 )
-	{	// CRC error .. turn some LEDs on ... this isn't the time for fancy code...
-#if FLASHCRCCHECK >=2
-		static const __flash uint8_t ledm[]={ BITBYTE(LED_DONE)| BITBYTE(LED_DOWN),0, 0, 0, 0 }; // just DOWN & DONE lit
-#endif
-		cbi(LED_LATCH_PORT, LED_LATCH_PIN);
-		for(uint8_t i = 0; i < 5; i++)
-		{
-#if FLASHCRCCHECK >=2
-			SPDR = ledm[i]; 
-#else 
-			SPDR = 0x88;
-#endif 
-			while(!(SPSR & (1 << SPIF)))
-				;
-		}
-		sbi(LED_LATCH_PORT, LED_LATCH_PIN);
-		DDRB = ENA_LED;	//  enable LEDs. (=> for Hardware mod to *NOT* have the anoying random start up state of the HC594 shown on the LEDs. )
-		while(1)
-			;
-	}
-#endif
 #endif
 
 	/* setup the USB-UART */
@@ -329,6 +303,7 @@ int main(void)
 		switch(function)
 		{
 			case EDIT_PATTERN_FUNC:
+				sync = MIDI_SYNC;
 				do_pattern_edit();
 				break;
 			case PLAY_PATTERN_FUNC:
@@ -371,7 +346,7 @@ int main(void)
 
 
 
-void clearPendingDinPulses()
+void clearPendingDinPulses(void)
 {
 #ifdef SYNC_OUT
 	for(uint8_t i = 0; i < 12; i++)
@@ -390,7 +365,7 @@ void clearPendingDinPulses()
 	swingNoteOff_timeout = 0;
 }*/
 
-uint8_t findEOP()
+uint8_t findEOP(void)
 {
 	uint8_t index=0; 
 	while((index < patt_length) && (pattern_buff[index] != END_OF_PATTERN))
@@ -398,7 +373,7 @@ uint8_t findEOP()
 	return index; 
 }
 
-uint8_t variationAllowed()
+uint8_t variationAllowed(void)
 {
 	if(	   variationOn 
 		&& pattern_play_index >= variFirstStep 
@@ -622,20 +597,7 @@ void do_tempo(void)
 					if(curr_function==PLAY_PATTERN_FUNC ||curr_function==PLAY_PATTERN_DINSYNC_FUNC ||curr_function==PLAY_PATTERN_MIDISYNC_FUNC   )
 					{	// one of the play modes, these switch patterns. Edit modes should not do that. 
 							
-						curr_chain_index++;		// go to next patt in chain
-
-						// last pattern in this chain?
-						if((curr_chain_index >= MAX_CHAIN) || (curr_chain[curr_chain_index] == 0xFF))
-						{
-							curr_chain_index = 0;
-						}
-
-						load_next_chain(TRUE);
-
-						uint8_t len = patt_length;
-						load_pattern(curr_bank, curr_chain[curr_chain_index]);
-
-						patt_length = len;
+						load_next_pattern(); // load next pattern in chain routine
 					}
 				}
 			}	//playing
@@ -1297,7 +1259,7 @@ void changeTempoKnobValue(int8_t moved_ticks)
 
 
 //void dispatch_note_off(int8_t pitch_shift)
-void dispatch_note_off()
+void dispatch_note_off(void)
 {
 	isSlide = (curr_note | all_slide ) & SLIDE ;
 	
@@ -1379,10 +1341,17 @@ void dispatch_note_on(int8_t pitch_shift)
 	}
 
 	// place final note in valid range
-	while(ps > HIGHESTNOTE)			//highest
-		ps -= OCTAVE;
-	while(note && ps < LOWESTNOTE)	//lowest C!
-		ps += OCTAVE;
+	//while(ps > HIGHESTNOTE)			//highest
+	//	ps -= OCTAVE;
+	//while(note && ps < LOWESTNOTE)	//lowest C!
+	//	ps += OCTAVE;
+
+    // removed octave loop,
+    // pattern_play has a smaller
+    // range then midiplay
+    
+    if (ps < LOWESTNOTE && note)    return;
+    if (ps > HIGHESTNOTE)           return;
 
 
 	prevNoteSent = noteSent;
@@ -1406,6 +1375,23 @@ void dispatch_note_on(int8_t pitch_shift)
 	midi_send_note_on((uint8_t) ps | isAcc);
 }
 
+void load_next_pattern(void) {
+	curr_chain_index++;		// go to next patt in chain
+
+	// last pattern in this chain?
+	if((curr_chain_index >= MAX_CHAIN) || (curr_chain[curr_chain_index] == 0xFF))
+	{
+		curr_chain_index = 0;
+	}
+
+	load_next_chain(TRUE);
+
+	uint8_t len = patt_length;
+	load_pattern(curr_bank, curr_chain[curr_chain_index]);
+
+	patt_length = len;
+}
+
 void load_next_chain(uint8_t reset)
 {
 	if(!chains_equiv(next_chain, curr_chain) || (curr_bank != next_bank))
@@ -1424,7 +1410,7 @@ void load_next_chain(uint8_t reset)
 	curr_pitch_shift = next_pitch_shift;
 }
 
-void measureTempo()
+void measureTempo(void)
 {
 	static uint8_t lastMeasure = 5;//whatever
 	static uint8_t sameTempoCount = 0;//whatever

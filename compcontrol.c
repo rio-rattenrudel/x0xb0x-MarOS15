@@ -255,9 +255,10 @@ void send_tempo(uint8_t t)
  * 8 bit CRC Generator, MSB shifted first
  * Polynom: x^8 + x^2 + x^1 + 1
  * 
- * Calculates an 8-bit cyclic redundancy check sum.
+ * Calculates an 8-bit cyclic redundancy check sum for a packet.
+ * This function takes care not to include the packet's check sum in calculating 
+ * the check sum.  Assumes the CRC is the last byte of the packet header. 
  */
-#if !defined(FLASHCRCCHECK)
 uint8_t calc_CRC8(uint8_t *buff, uint16_t size)
 {
 	uint8_t x;
@@ -266,8 +267,6 @@ uint8_t calc_CRC8(uint8_t *buff, uint16_t size)
 	while(size)
 	{
 		--size;
-
-#ifdef FASTCRC
 		x = crc ^ *buff++;
 		crc = 0;
 
@@ -287,108 +286,219 @@ uint8_t calc_CRC8(uint8_t *buff, uint16_t size)
 			crc ^= 0xC7;
 		if(x & 0x80)
 			crc ^= 0x89;
-#else
-
-		static const uint8_t crctab[]={0x07,0x0e,0x1c,0x38,0x70,0xe0,0xc7,0x89};
-
-		x = crc ^ *buff++;
-		crc = 0;
-	
-		uint8_t m=1;
-
-		for(uint8_t i=0;i<8;++i)
-		{
-			if(x&m)
-			crc^= crctab[i];
-			m<<=1;
-		}
-#endif 
 	}
+
 	return crc;
 }
-#else
 
+//
+// added c0nb0x debugging stuff:
+//
 
-uint8_t crc8(uint8_t crc, uint8_t c)
+int uart_putchar(char c)
 {
-	uint8_t x;
-
-#ifdef FASTCRC
-	x = crc ^ c;
-	crc = 0;
-
-	if(x & 0x01)
-		crc ^= 0x07;
-	if(x & 0x02)
-		crc ^= 0x0E;
-	if(x & 0x04)
-		crc ^= 0x1C;
-	if(x & 0x08)
-		crc ^= 0x38;
-	if(x & 0x10)
-		crc ^= 0x70;
-	if(x & 0x20)
-		crc ^= 0xE0;
-	if(x & 0x40)
-		crc ^= 0xC7;
-	if(x & 0x80)
-		crc ^= 0x89;
-#else
-
-	static const  uint8_t crctab[]={0x07,0x0e,0x1c,0x38,0x70,0xe0,0xc7,0x89};
-
-	x = crc ^ c;
-	crc = 0;
-	
-	uint8_t m=1; 
-
-	for(uint8_t i=0;i<8;++i)
-	{
-		if(x&m)
-			crc^= crctab[i];
-		m<<=1; 
-	}
-#endif 	
-	
-	return crc;
-}
-uint8_t calc_CRC8(uint8_t *buff, uint16_t size)
-{
-	uint8_t crc = 0;
-
-	while(size)
-	{
-		--size;
-		crc = crc8(crc,*buff++);
-	}
-	return crc; 
+	loop_until_bit_is_set(UCSR1A, UDRE1);
+	UDR1 = c;
+	return 0;
 }
 
-
-extern uint8_t __data_load_end; // End of .data section from the linker  
-
-uint8_t checkFlash()
-{
-
-	uint16_t i; 
-	uint8_t crc=0; 
-	i = (uint16_t) &__data_load_end;
-	 
-//15626
-	do{
-		--i;
-		crc=crc8(crc, pgm_read_byte((void *)i) );
-	}while(i); 
-
-/*
-//15632
+void send_msg(uint8_t *buff, uint16_t len) {
 	uint16_t i;
-	uint8_t crc=0;
-	const uint16_t	fsiz = (uint16_t) &__data_load_end;
-	
-	for(i=0;i<fsiz;++i)
-		crc=crc8(crc, pgm_read_byte((void *)i) );
-*/
-	return crc; 
+	for (i=0; i<len; i++) {
+		uart_putchar(buff[i]);
+	}
 }
-#endif 
+
+#ifdef XMSG_TEXTOUT
+void textout(char* s)
+{
+    tx_msg_buff[0] = MSG_TEXTOUT;
+    tx_msg_buff[1] = 0;
+    tx_msg_buff[3] = TXTO_STR;
+    // get length of string
+    // don't pass long strings please!
+    uint8_t len = 0;
+    while (len < 255)
+    {
+        if (s[len] == 0x00) { break; }
+        ++len;
+    }
+    // we'll slice the string if it's too big to fit into a single packet
+    uint8_t nump = len/48; // let's use 48 bytes at a time
+    if ((len-(nump*48))) { ++nump; } // round-up
+    uint8_t i = 0;
+    uint8_t i2 = 0;
+    uint8_t n = 0;
+
+    while (n < nump)
+    {
+        // for each packet..
+        i = 0;
+        while (i < 48)
+        {
+            if (i2 >= len) { break; }
+            tx_msg_buff[4+i] = s[i2];
+            ++i;
+            ++i2;
+        }
+        ++i;
+        tx_msg_buff[2] = i; // data_size
+        i += 3;
+        tx_msg_buff[i] = calc_CRC8(tx_msg_buff, i);
+        send_msg(tx_msg_buff, 1+i);
+        ++n;
+    }
+    return;
+}
+void textout_bin(uint8_t* data, uint8_t len)
+{
+    // binary!
+    tx_msg_buff[0] = MSG_TEXTOUT;
+    tx_msg_buff[1] = 0;
+    tx_msg_buff[3] = TXTO_BIN;
+    // we'll slice the data if it's too big to fit into a single packet
+    uint8_t nump = len/48; // let's use 48 bytes at a time
+    if ((len-(nump*48))) { ++nump; } // round-up
+    uint8_t i = 0;
+    uint8_t i2 = 0;
+    uint8_t n = 0;
+
+    while (n < nump)
+    {
+        // for each packet..
+        i = 0;
+        while (i < 48)
+        {
+            if (i2 >= len) { break; }
+            tx_msg_buff[4+i] = data[i2];
+            ++i;
+            ++i2;
+        }
+        ++i;
+        tx_msg_buff[2] = i; // data_size
+        i += 3;
+        tx_msg_buff[i] = calc_CRC8(tx_msg_buff, i);
+        send_msg(tx_msg_buff, 1+i);
+        ++n;
+    }
+    return;
+}
+void textout_ui8(uint8_t x)
+{
+    uint8_t len = 1;
+    tx_msg_buff[0] = MSG_TEXTOUT;
+    tx_msg_buff[1] = 0;
+    tx_msg_buff[3] = TXTO_UI8;
+    uint8_t i = 0;
+    while (i < len)
+    {
+        tx_msg_buff[4+i] = x;
+        ++i;
+    }
+    ++i;
+    tx_msg_buff[2] = i; // data_size
+    i += 3;
+    tx_msg_buff[i] = calc_CRC8(tx_msg_buff, i);
+    send_msg(tx_msg_buff, 1+i);
+    return;
+}
+void textout_ui16(uint16_t x)
+{
+    uint8_t len = 2;
+    tx_msg_buff[0] = MSG_TEXTOUT;
+    tx_msg_buff[1] = 0;
+    tx_msg_buff[3] = TXTO_UI16;
+    uint8_t i = 0;
+    uint8_t *s = (uint8_t*)(&x);
+    while (i < len)
+    {
+        tx_msg_buff[4+i] = s[i];
+        ++i;
+    }
+    ++i;
+    tx_msg_buff[2] = i; // data_size
+    i += 3;
+    tx_msg_buff[i] = calc_CRC8(tx_msg_buff, i);
+    send_msg(tx_msg_buff, 1+i);
+    return;
+}
+void textout_ui32(uint32_t x)
+{
+    uint8_t len = 4;
+    tx_msg_buff[0] = MSG_TEXTOUT;
+    tx_msg_buff[1] = 0;
+    tx_msg_buff[3] = TXTO_UI32;
+    uint8_t i = 0;
+    uint8_t *s = (uint8_t*)(&x);
+    while (i < len)
+    {
+        tx_msg_buff[4+i] = s[i];
+        ++i;
+    }
+    ++i;
+    tx_msg_buff[2] = i; // data_size
+    i += 3;
+    tx_msg_buff[i] = calc_CRC8(tx_msg_buff, i);
+    send_msg(tx_msg_buff, 1+i);
+    return;
+}
+void textout_si8(int8_t x)
+{
+    uint8_t len = 1;
+    tx_msg_buff[0] = MSG_TEXTOUT;
+    tx_msg_buff[1] = 0;
+    tx_msg_buff[3] = TXTO_SI8;
+    uint8_t i = 0;
+    while (i < len)
+    {
+        tx_msg_buff[4+i] = x;
+        ++i;
+    }
+    ++i;
+    tx_msg_buff[2] = i; // data_size
+    i += 3;
+    tx_msg_buff[i] = calc_CRC8(tx_msg_buff, i);
+    send_msg(tx_msg_buff, 1+i);
+    return;
+}
+void textout_si16(int16_t x)
+{
+    uint8_t len = 2;
+    tx_msg_buff[0] = MSG_TEXTOUT;
+    tx_msg_buff[1] = 0;
+    tx_msg_buff[3] = TXTO_SI16;
+    uint8_t i = 0;
+    uint8_t *s = (uint8_t*)(&x);
+    while (i < len)
+    {
+        tx_msg_buff[4+i] = s[i];
+        ++i;
+    }
+    ++i;
+    tx_msg_buff[2] = i; // data_size
+    i += 3;
+    tx_msg_buff[i] = calc_CRC8(tx_msg_buff, i);
+    send_msg(tx_msg_buff, 1+i);
+    return;
+}
+void textout_si32(int32_t x)
+{
+    uint8_t len = 4;
+    tx_msg_buff[0] = MSG_TEXTOUT;
+    tx_msg_buff[1] = 0;
+    tx_msg_buff[3] = TXTO_SI32;
+    uint8_t i = 0;
+    uint8_t *s = (uint8_t*)(&x);
+    while (i < len)
+    {
+        tx_msg_buff[4+i] = s[i];
+        ++i;
+    }
+    ++i;
+    tx_msg_buff[2] = i; // data_size
+    i += 3;
+    tx_msg_buff[i] = calc_CRC8(tx_msg_buff, i);
+    send_msg(tx_msg_buff, 1+i);
+    return;
+}
+#endif//XMSG_TEXTOUT

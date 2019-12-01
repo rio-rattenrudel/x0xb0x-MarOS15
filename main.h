@@ -31,6 +31,7 @@
  */
  
 #define VERSION 182			// Software-Version reported to c0nb0x 
+#define __AVR_ATmega2561__ 1 // new CPU
 
 /*		
 	up to 164: countless Developer versions 	
@@ -98,7 +99,7 @@
 		
 		182: MarOS15-V1.82		+   Midi program change "+1" fixed. 
 */
- 
+
 #define SYNC_OUT 1					// undef if you don't want to have it - saves some bytes 
 #define DIN_SYNC_IN 1				//  ... both together: 708 bytes 
 
@@ -108,9 +109,12 @@
 									// ... and yes, you can only see if (LED or switch) is broken 
 #define DACBITS_TEST				// set/clear Portbits directly by keys for hardware debugging 
 
-#define WITHRANGECHECK				// LED on/off range check. (change memory only if LED no. is valid) 
-#define FLASHCRCCHECK  2            // 1=80/2=92 (betterLED pattern) Bytes, program flash code CRC check on startup. Makes CRC slower. ATN: REQUIRES externally calculated/set CRC. 
-#define FASTCRC						// 20/28 Bytes more, but a little bit faster
+#define WITHRANGECHECK				// LED on/off range check. (change memory only if LED no. is valid)
+
+									// not used anymore, because it's not working/needed with 2561:
+//#define FLASHCRCCHECK  2			// 1=80/2=92 (betterLED pattern) Bytes, program flash code CRC check on startup. Makes CRC slower. ATN: REQUIRES externally calculated/set CRC. 
+//#define FASTCRC					// 20/28 Bytes more, but a little bit faster
+
 #define HASDOUBLECLICKF				// 76 Bytes doubleclick F fills pattern 
 #define HASPATTERNCLRFILL			// Pattern clear/fill function on REST, DOWN/UP in pattern edit when stopped (where you load patterns with 1...8) 
 									
@@ -135,7 +139,7 @@
 #define CLK_CALIBRATION_EEADDR	0x1		// unused 
 #define MIDIIN_ADDR_EEADDR		0x3
 #define MIDIOUT_ADDR_EEADDR		0x4
-#define TEMPO_EEADDR_H			0x5		// not used anymore
+//#define TEMPO_EEADDR_H		0x5		// not used anymore
 #define TEMPO_EEADDR_L			0x6		// Tempo 20  ... 255 
 
 #define USERSETTINGS_EEADDR      0x7
@@ -194,11 +198,12 @@
 #define SETTINGS2_FILLWITHC2       0    // Key #1   Randomizer Pattern Fill on F doubleclick fills with C2 notes instead of RESTs 
 //#define SETTINGS2_KEY2           1    // Key #2   (unused )
 //#define SETTINGS2_KEY3           2    // Key #3   (unused )
-//#define SETTINGS2_KEY4           3    // Key #4   (unused )
+#define SETTINGS2_FULL_TRANSPOSE   3	// Key #4  LED ON =	ignores pattern selection by notes aso. instead use full range transpose
 #define SETTINGS2_KEEP_STEPMODE    4    // Key #5   Keep step edit mode (and current Step)  when changing between Run & Stop 
 #define SETTINGS2_ENC_Q2		   5    // Key #6  LED ON = also use Encoder Quadrature 2 (Std: LL->HL->HH->LH
-//#define SETTINGS2_KEY7           6    // Key #7   (unused )
-//#define SETTINGS2_KEY8           7    // Key #8   (unused )
+#define SETTINGS2_OCT_DOWN		   6	// Key #7  LED ON =	use -1OCT for midiplay incoming notes
+#define SETTINGS2_INSTANT_PROGCHG  7	// Key #8  LED ON =	don't wait for end o. release of playing pattern
+
 
 //#define FIXED_SETTING_2			0
 
@@ -254,6 +259,7 @@
 /************* function prototypes */
 void	ioinit(void);
 void	change_tempo(uint16_t newtempo);
+void	load_next_pattern(void);
 
 uint8_t random100(void);
 uint8_t random_x(uint8_t x);
@@ -264,11 +270,11 @@ uint8_t random_x(uint8_t x);
 //#define randomIf(p)  ((p)>random_x(100))
 
 
-uint8_t	findEOP();
-void	clearPendingDinPulses();
+uint8_t	findEOP(void);
+void	clearPendingDinPulses(void);
 //void	clearScheduledNotes();
 
-void	measureTempo();
+void	measureTempo(void);
 	
 void	turn_off_tempo(void);
 void	turn_on_tempo(void);

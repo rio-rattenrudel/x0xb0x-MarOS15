@@ -35,12 +35,10 @@
 uint8_t calc_CRC8(uint8_t *buff, uint16_t size);
 uint8_t input_uint8(void);
 
-uint8_t checkFlash(); // crc of prog flash, should be zero 
-
 void	send_msg(uint8_t *buff, uint16_t len);
 void	send_status(uint8_t stat);
 void	send_tempo(uint8_t tempo);
-void	send_seq_params();
+void	send_seq_params(void);
 void	do_uart_cmd(void);
 
 #define INVALID_MSG			0xff
@@ -85,3 +83,50 @@ void	do_uart_cmd(void);
 #define MSG_FW_VER			0x81
 
 #define SEQ_PARAMS_MSG_LEN	5
+
+
+//
+// added c0nb0x debugging stuff:
+//
+
+#define MSG_ISSUPP			0x82
+#define MSG_DIAG			0x83
+#define MSG_TEXTOUT			0x84
+#define MSG_GET_MEM			0x85
+#define MSG_SET_MEM			0x86
+#define MSG_PATBUF			0x87
+#define MSG_GET_INFO		0x88
+
+#define XMSG_TEXTOUT
+
+enum TEXTOUT_TYPE
+{
+    TXTO_STR        = 0, // null-terminated string
+    TXTO_UI8        = 1, // uint8_t
+    TXTO_SI8        = 2, // int8_t
+    TXTO_UI16       = 3, // uint16_t
+    TXTO_SI16       = 4, // int16_t
+    TXTO_UI32       = 5, // uint32_t
+    TXTO_SI32       = 6, // int32_t
+    TXTO_BIN        = 7, // <binary data>
+};
+
+#ifdef XMSG_TEXTOUT
+void textout(char* s);
+void textout_bin(uint8_t* data, uint8_t len);
+void textout_ui8(uint8_t x);
+void textout_ui16(uint16_t x);
+void textout_ui32(uint32_t x);
+void textout_si8(int8_t x);
+void textout_si16(int16_t x);
+void textout_si32(int32_t x);
+#else
+    #define textout(x)
+    #define textout_bin(x,y)
+    #define textout_ui8(x)
+    #define textout_ui16(x)
+    #define textout_ui32(x)
+    #define textout_si8(x)
+    #define textout_si16(x)
+    #define textout_si32(x)
+#endif//XMSG_TEXTOUT

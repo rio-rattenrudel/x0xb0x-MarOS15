@@ -79,6 +79,17 @@ static volatile  uint8_t midi_tx_q[MIDI_Q_SIZE];	// cyclic queue for midi msgs
 static volatile  uint8_t head_tx_idx = 0;
 static volatile  uint8_t tail_tx_idx = 0;
 
+// own definitions
+uint8_t slide;
+
+uint8_t kaccent = 0;
+uint8_t maccent = 0;
+uint8_t mshift = 0;
+
+extern const uint8_t loopkey_tab[20];
+signed int shift = 0;
+
+mva_data mva1;
 
 /*
 *	Forward function declarations 
@@ -264,11 +275,17 @@ void do_midi(void)
 						if(c) 
 						{
 							noteOnFunc(data1,c);
+							if (function==MIDI_CONTROL_FUNC)
+								note_led_handler(data1,c);
+
 							break; 
 						}
 						// no break! =>  with Velocity 0 it *IS* NOTE OFF 	
 					case MIDI_NOTE_OFF:
 						noteOffFunc(data1);
+						if (function==MIDI_CONTROL_FUNC)
+							note_led_handler(data1,0);
+						
 						break;
 					case MIDI_CONTROLLER: 
 						controllerFunc(data1,c);
@@ -299,7 +316,9 @@ void do_midi_mode(void)
 	set_bank_leds(midi_in_addr);
 
 	has_bank_knob_changed();	// ignore startup change
-	prev_note = 255;			// no notes played yet
+
+	slide = 0;
+	mva_reset(&mva1);
 
 	// set proper  functions for do_midi: 
 	noteOnFunc=midi_note_on; 
@@ -324,47 +343,257 @@ void do_midi_mode(void)
 
 			//clear_bank_leds();
 			set_bank_leds(midi_in_addr);
-
 		}
-		do_midi(); 
+		do_midi();
+		
+		runtime_key_handler();
+		runtime_led_handler();
+	}
+}
+
+void runtime_key_handler(void)
+{
+	// KEYBOARD KEYS MAPPED TO NOTE MSGS
+	for (uint8_t i=0; i<13; i++) {
+
+		// check if any notes were just pressed
+		if (just_pressed(loopkey_tab[i])) {
+			midi_note_on( ((C2+i) + shift*OCTAVE + 0x19), (kaccent || maccent) ? 127 : 100); 
+
+			// turn on that LED
+			set_notekey_led(i);	
+		}
+		
+		// check if any notes were released
+		if (just_released(loopkey_tab[i])) {
+			midi_note_off( ((C2+i) + shift*OCTAVE + 0x19)); 
+
+			// turn off that LED
+			clear_notekey_led(i);
+		}
+	}
+
+	// TRANSPOSE KEYS
+	if (just_pressed(KEY_UP)) {
+		if (shift < 2) {
+			release_keys();
+			shift++;
+		}
+	} else if (just_pressed(KEY_DOWN)) {
+		if (shift > -1)	{
+			release_keys();
+			shift--;
+		}
+	} 
+
+	// ACCENT KEY ACTIVE
+	if (just_pressed(KEY_ACCENT)) {
+		kaccent = 1;
+		set_led(LED_ACCENT);
+	}
+
+	// ACCENT KEY DEACTIVE
+	if (just_released(KEY_ACCENT)) {
+		kaccent = 0;
+		if (!maccent) clear_led(LED_ACCENT);
+	}
+}
+
+void release_keys(void)
+{
+	// LOOP THRU KEYBOARD KEYS
+	for (uint8_t i=0; i<13; i++) {
+
+		// check if any notes were just pressed
+		if (is_pressed(loopkey_tab[i])) {
+			midi_note_off( ((C2+i) + shift*OCTAVE + 0x19)); 
+
+			// turn off that LED
+			clear_notekey_led(i);
+		}
+	}
+}
+
+void runtime_led_handler(void)
+{
+	// SLIDE HANDLING
+	if (slide == SLIDE) {
+		if (!is_led_set(LED_SLIDE)) set_led(LED_SLIDE);
+	} else if (is_led_set(LED_SLIDE)) clear_led(LED_SLIDE);
+
+	// OCTAVE HANDLING
+	display_octave_shift(mshift ? mshift : shift);
+}
+
+void note_led_handler(uint8_t note, uint8_t velocity)
+{
+	// VALIDATE PLAYABLE RANGE
+	if (!midi_note_ranged(note)) return;
+
+	// NOTE ON
+	if (velocity) {
+
+		// turn on that LED
+		set_notekey_led(note % 12);
+
+		if (velocity > ACCENT_THRESH) {
+			set_led(LED_ACCENT);
+			maccent = 1;
+		} else {
+			if (!kaccent) clear_led(LED_ACCENT);
+			maccent = 0;
+		}
+
+		mshift = 0;
+		if (note <  48) mshift = -1;
+		if (note >= 60) mshift = 1;
+		if (note >= 72) mshift = 2;
+
+	// NOTE OFF
+	} else {
+
+		// turn off that LED
+		clear_notekey_led(note % 12);
+
+		if (!kaccent) clear_led(LED_ACCENT);
+		maccent = 0;
+		mshift = 0;
 	}
 }
 
 
-void midi_note_off(uint8_t note)
+// Monophonic Voice Allocator (with Accent, suitable for the 303)
+// "Newest" note-priority rule
+// Modified version, allows multiple Notes with the same pitch
+
+void mva_note_on(mva_data *p, uint8_t note, uint8_t accent)
 {
-	if(note == prev_note)
+	if (accent) { accent = 0x80; }
+	uint8_t s = 0;
+	uint8_t i = 0;
+
+	// shift all notes back
+	uint8_t m = p->n + 1;
+	m = (m > MIDI_MVA_SZ ? MIDI_MVA_SZ : m);
+	s = m;
+	i = m;
+	while (i > 0)
 	{
-		note_off(0);
-		prev_note = 255;
+		--s;
+		p->buf[i] = p->buf[s];
+		i = s;
 	}
-	set_note_led( 0 );
+	// put the new note first
+	p->buf[0] = note | accent;
+	// update the voice counter
+	p->n = m;
 }
 
-void midi_note_on(uint8_t note, uint8_t velocity)
+void mva_note_off(mva_data *p, uint8_t note)
 {
-	uint8_t slide = 0;
+	uint8_t s = 0;
 
-	// velocity 0 -> note off is already handled by the midi stream decoder! 
-	
-	// Legato? => Slide! 
-	if(prev_note != 255)
-		slide = SLIDE;
-	prev_note = note;
+	// find if the note is actually in the buffer
+	uint8_t m = p->n;
+	uint8_t i = m;
+	while (i) // count backwards (oldest notes first)
+	{
+		--i;
+		if (note == (p->buf[i] & 0x7F))
+		{
+			// found it!
+			if (i < (p->n - 1)) // don't shift if this was the last note..
+			{
+				// remove it now.. just shift everything after it
+				s = i;
+				while (i < m)
+				{
+					++s;
+					p->buf[i] = p->buf[s];
+					i = s;
+				}
+			}
+			// update the voice counter
+			if (m > 0) { p->n = m - 1; }
+			break;
+		}
+	}
+}
+
+void mva_reset(mva_data *p) 
+{
+	p->n = 0;
+}
+
+void midi_note_off(uint8_t note) {
+	if (mva1.n == 0) return;
+
+	// VALIDATE PLAYABLE RANGE
+	note = midi_note_ranged(note);
+	if (!note) return;
+
+	mva_note_off(&mva1, note);
+
+	if (mva1.n > 0) {
+		uint8_t accent	= mva1.buf[0] & 0x80 ? ACCENT : 0;
+		note			= mva1.buf[0] & 0x7F;
+		slide			= SLIDE;
+
+		note -= 0x19;
+		note |= slide;
+		note |= accent;
+		note_on(note);
+
+	} else {
+		slide = 0;
+		note_off(0);
+	}
+}
+
+void midi_note_on(uint8_t note, uint8_t velocity) {
+
+	if (velocity == 0 && note != 0) {
+		// strange midi thing: velocity 0 -> note off!
+		midi_note_off(note);
+	} else {
+
+		// VALIDATE PLAYABLE RANGE
+		note = midi_note_ranged(note);
+		if (!note) return;
+
+	    mva_note_on(&mva1, note, velocity > ACCENT_THRESH);
+
+	    uint8_t accent	= mva1.buf[0] & 0x80 ? ACCENT : 0;
+	    note			= mva1.buf[0] & 0x7F;
+	    slide			= mva1.n > 1 ? SLIDE : 0;
+
+		note -= 0x19;
+		note |= slide;
+		note |= accent;
+		note_on(note);
+	}
+}
+
+uint8_t midi_note_ranged(uint8_t note) {
+
+	// TT-303 midi play mode (1OCT-)
+	if (IS_SET2( SETTINGS2_OCT_DOWN )) note-=OCTAVE;
 
 	// move incomming notes to playable range. 
-	while (note<0x20)	// Note 0x19 and 0x20 have the same pitch as 21, as the buffer OP-Amp can't go that close to ground rail... 
-		note+=OCTAVE;
-	while (note>=0x3F+0x19) 
-		note-=OCTAVE;
+	// Note 0x19 and 0x20 have the same pitch as 21, 
+	// as the buffer OP-Amp can't go that close to ground rail... 
 
-		
-	note -= 0x19;
-	note |=slide; 
-	if(velocity > ACCENT_THRESH)
-		note |=  ACCENT; 
-	note_on( note);
-	set_note_led( note);
+	//	while (note<0x20)		note+=OCTAVE;
+	//	while (note>=0x3F+0x19) note-=OCTAVE;
+
+	// removed octave loop,
+	// midiplay has a bigger
+	// range then pattern_play
+
+	if (note < LOWESTNOTE_MIDIPLAY)		return 0;
+	if (note > HIGHESTNOTE_MIDIPLAY)	return 0;
+
+	return note;
 }
 
 void midi_send_note_on(uint8_t note)
@@ -442,5 +671,4 @@ void midi_notesoff(void)
 	midi_putchar(0);
 	midi_putchar(MIDI_ALL_SOUND_OFF);
 	midi_putchar(0);
-
 }

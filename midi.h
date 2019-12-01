@@ -71,6 +71,12 @@
 
 #define MIDISYNC_PPQ	24
 
+#define MIDI_MVA_SZ 8
+typedef struct
+{
+    uint8_t buf[MIDI_MVA_SZ];
+    uint8_t n;
+} mva_data;
 
 void	midi_putchar(uint8_t c);
 void	do_midi_mode(void);
@@ -81,8 +87,18 @@ void	midi_clr_input(void);
 
 uint8_t get_midi_addr(uint8_t eeaddr);
 
+void	runtime_key_handler(void);
+void	release_keys(void);
+void	runtime_led_handler(void);
+void	note_led_handler(uint8_t note, uint8_t velocity);
+
+void	mva_note_on(mva_data *p, uint8_t note, uint8_t accent);
+void	mva_note_off(mva_data *p, uint8_t note);
+void	mva_reset(mva_data *p);
+
 void	midi_note_off(uint8_t note);
 void	midi_note_on(uint8_t note, uint8_t velocity);
+uint8_t midi_note_ranged(uint8_t note);
 
 void	midi_send_note_on(uint8_t note);
 void	midi_send_note_off(uint8_t note);

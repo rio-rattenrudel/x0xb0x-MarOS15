@@ -436,8 +436,8 @@ void edit_pattern()
 	p_len=findEOP();
 
 	// handle all start / stop inputs
-	start_stop();
-		
+	do_midi(); // do_midi exec is necessary!!! fixed Advanced Mode pattern start/stop
+	start_stop(1);
 
 	if(just_pressed(KEY_TEMPO) && !is_pressed(KEY_CHAIN))
 	{

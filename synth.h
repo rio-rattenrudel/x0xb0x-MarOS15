@@ -115,8 +115,15 @@
 #define D5_SHARP	0x3E	// 62
  // 3F not usable / pattern end marker 
 
-#define LOWESTNOTE  C1
-#define HIGHESTNOTE D5_SHARP
+#define LOWESTNOTE  			C1
+#define HIGHESTNOTE 			D5_SHARP
+
+#define LOWESTNOTE_TRANSPOSE	0x1F	// 31 (full range transpose)
+#define LOWESTNOTE2_TRANSPOSE	0x31	// 49 (original)
+#define HIGHESTNOTE_TRANSPOSE	0x60	// 96 (original)
+
+#define LOWESTNOTE_MIDIPLAY		0x1F
+#define HIGHESTNOTE_MIDIPLAY	0x3F+0x19
 
 
 #define SLIDE		0x80

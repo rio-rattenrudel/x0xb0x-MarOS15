@@ -135,14 +135,14 @@ uint8_t dinsync_rs(void)
 
 
 /* these functions set the input/output descriptors */
-void dinsync_set_out()
+void dinsync_set_out(void)
 {
 	DINSYNC_DDR |= _BV(DINSYNC_START) | _BV(DINSYNC_CLK) | _BV(DINSYNC_4) | _BV(DINSYNC_5);
 
 	DINSYNC_DATA &= ~(_BV(DINSYNC_START) | _BV(DINSYNC_CLK) | _BV(DINSYNC_4) | _BV(DINSYNC_5));
 }
 
-void dinsync_set_in()
+void dinsync_set_in(void)
 {
 	DINSYNC_DDR &= ~(_BV(DINSYNC_START) | _BV(DINSYNC_CLK) | _BV(DINSYNC_4) | _BV(DINSYNC_5));
 
