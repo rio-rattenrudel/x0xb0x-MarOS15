@@ -23,6 +23,8 @@ This branch contains some necessary changes to the x0xb0x MarOS15 firmware, whic
 * `Key #7 LED ON = transposing down -1OCT for midiplay incoming notes`
 * `Key #8 LED ON = instant program change`
 
+[Feature: MarOS15 - Rio Adaption (version 182) ](https://github.com/rio-rattenrudel/x0xb0x-MarOS15/commit/60f376193acafe77d37f4bb9e08bc79d1c4a67ed)
+
 ## Notes
 
 MarOS15 for x0xlarge CPU (Atmega2561).
