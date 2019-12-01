@@ -18,7 +18,7 @@ This branch contains some necessary changes to the x0xb0x MarOS15 firmware, whic
 * fixed run/stop handling issues
 
 ## Added USERC Settings #F Options:
------------------------------------
+
 * `Key #4 LED ON = ignores pattern selection by notes (fullrange trans)`
 * `Key #7 LED ON = transposing down -1OCT for midiplay incoming notes`
 * `Key #8 LED ON = instant program change`
